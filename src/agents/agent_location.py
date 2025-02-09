@@ -22,12 +22,16 @@ class AgentLocation:
         try:
             log.info(f"Received location event: lat={params.lat}, lng={params.lng}")
             
+            # raw_response = await agent.step(
+            #     get_location_numbers,
+            #     LocationParams(lat=params.lat, lng=params.lng),
+            #     start_to_close_timeout=timedelta(seconds=30),
+            # )
             raw_response = await agent.step(
                 get_location_numbers,
                 LocationParams(lat=params.lat, lng=params.lng),
-                start_to_close_timeout=timedelta(seconds=30),
+                start_to_close_timeout=timedelta(seconds=60),  # Increased timeout for API calls
             )
-            
             # Explicitly validate the response
             response = LocationResponse(hackathons=raw_response.hackathons if hasattr(raw_response, 'hackathons') else [])
             

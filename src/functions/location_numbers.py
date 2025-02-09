@@ -1,7 +1,9 @@
 from restack_ai.function import function, log
 from pydantic import BaseModel
 from typing import List, Optional
-import random
+import aiohttp
+import os
+from datetime import datetime, timedelta
 
 class HackathonInfo(BaseModel):
     name: str
@@ -16,33 +18,61 @@ class LocationParams(BaseModel):
 class LocationResponse(BaseModel):
     hackathons: List[HackathonInfo]
 
+async def search_hackathons(lat: float, lng: float) -> List[dict]:
+    tavily_api_key = os.getenv("TAVILY_API_KEY")
+    if not tavily_api_key:
+        log.error("TAVILY_API_KEY not found in environment variables")
+        return []
+
+    # Calculate date range for last 4 weeks
+    end_date = datetime.now()
+    start_date = end_date - timedelta(weeks=4)
+    date_range = f"{start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}"
+
+    # Construct search query with more natural language
+    search_query = f"hackathon events competitions programming coding near {lat},{lng} happening after {start_date.strftime('%Y-%m-%d')}"
+    
+    async with aiohttp.ClientSession() as session:
+        try:
+            async with session.post(
+                "https://api.tavily.com/search",
+                json={
+                    "api_key": tavily_api_key,
+                    "query": search_query,
+                    "search_depth": "advanced",
+                    # Removed the include_domains restriction
+                    "max_results": 8,  # Increased results since we're searching more broadly
+                    "sort_by": "relevance"  # Ensure most relevant results come first
+                }
+            ) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    return data.get("results", [])
+                else:
+                    log.error(f"Tavily API request failed with status {response.status}")
+                    return []
+        except Exception as e:
+            log.error(f"Error calling Tavily API: {e}")
+            return []
+
 @function.defn()
 async def get_location_numbers(params: LocationParams) -> LocationResponse:
     try:
-        # Simulate getting hackathon data based on location
-        # In a real implementation, this would call an AI service or API
-        sample_hackathons = [
-            HackathonInfo(
-                name="TechCrunch Disrupt Hackathon",
-                description="Join the world's largest hackathon focused on disruptive technologies",
-                location=f"Near {params.lat:.2f}, {params.lng:.2f}",
-                date="2024-06-15"
-            ),
-            HackathonInfo(
-                name="Local Innovation Challenge",
-                description="Community-driven hackathon focusing on local problems",
-                location=None,
-                date="2024-05-20"
-            ),
-            HackathonInfo(
-                name="AI for Good Hackathon",
-                description="Build AI solutions that make a positive impact on society",
-                location=f"Virtual + Hybrid options available",
-                date=None
+        search_results = await search_hackathons(params.lat, params.lng)
+        
+        hackathons = []
+        for result in search_results:
+            # Extract relevant information from search results
+            hackathons.append(
+                HackathonInfo(
+                    name=result.get("title", "Unnamed Hackathon"),
+                    description=result.get("snippet", "No description available"),
+                    location=f"Near {params.lat:.2f}, {params.lng:.2f}",
+                    date=result.get("published_date", None)
+                )
             )
-        ]
-        return LocationResponse(hackathons=sample_hackathons)
+
+        return LocationResponse(hackathons=hackathons)
     except Exception as e:
         log.error("location_numbers function failed", error=e)
-        # Instead of raising, return empty hackathons list
         return LocationResponse(hackathons=[])
