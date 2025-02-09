@@ -30,7 +30,7 @@ class AgentLocation:
             raw_response = await agent.step(
                 get_location_numbers,
                 LocationParams(lat=params.lat, lng=params.lng),
-                start_to_close_timeout=timedelta(seconds=60),  # Increased timeout for API calls
+                start_to_close_timeout=timedelta(seconds=180),  # Increased timeout for API calls
             )
             # Explicitly validate the response
             response = LocationResponse(hackathons=raw_response.hackathons if hasattr(raw_response, 'hackathons') else [])

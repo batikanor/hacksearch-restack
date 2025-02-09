@@ -44,20 +44,23 @@ async def search_hackathons(lat: float, lng: float) -> List[dict]:
                     search_locations = [
                         f'"{p}"' for p in location_parts if p
                     ]
+                    log.info(f"Location resolved to: {location_string}")
                 else:
                     location_string = f"{lat:.2f}, {lng:.2f}"
                     search_locations = [location_string]
+                    log.warning(f"Could not resolve location, using coordinates: {location_string}")
         except Exception as e:
             log.error(f"Error getting location name: {e}")
             location_string = f"{lat:.2f}, {lng:.2f}"
             search_locations = [location_string]
 
-    # Simpler search query focusing on event types and location
+    # Log the search query being used
     search_query = (
         f'("hackathon" OR "tech event" OR "coding competition" OR "developer conference" OR "tech conference") '
         f'AND ({" OR ".join(search_locations)}) '
         f'AND (venue OR location OR event)'
     )
+    log.info(f"Using search query: {search_query}")
     
     async with aiohttp.ClientSession() as session:
         try:
@@ -67,7 +70,7 @@ async def search_hackathons(lat: float, lng: float) -> List[dict]:
                     "api_key": tavily_api_key,
                     "query": search_query,
                     "search_depth": "advanced",
-                    "max_results": 20,  # Increased for more results
+                    "max_results": 20,
                     "sort_by": "relevance",
                     "include_raw_content": True
                 }
@@ -75,6 +78,7 @@ async def search_hackathons(lat: float, lng: float) -> List[dict]:
                 if response.status == 200:
                     data = await response.json()
                     results = data.get("results", [])
+                    log.info(f"Initial search returned {len(results)} results")
                     
                     # Basic filtering to ensure location relevance and individual events
                     filtered_results = []
@@ -86,6 +90,10 @@ async def search_hackathons(lat: float, lng: float) -> List[dict]:
                             result.get("snippet", "").lower() + " " +
                             result.get("raw_content", "").lower()
                         )
+                        
+                        # Log individual result details before filtering
+                        log.info(f"Processing result: {result.get('title', '')}")
+                        log.debug(f"Content length: {len(content)} chars")
                         
                         # Simpler filtering criteria
                         location_match = any(term in content for term in location_terms)
@@ -104,8 +112,13 @@ async def search_hackathons(lat: float, lng: float) -> List[dict]:
                             
                             result["title"] = title
                             filtered_results.append(result)
+                            log.info(f"Accepted result: {title}")
+                        else:
+                            log.debug(f"Filtered out: {result.get('title', '')} - Location match: {location_match}, Specific event: {is_specific_event}")
                     
-                    return filtered_results[:10]  # Return up to 10 results
+                    final_results = filtered_results[:10]
+                    log.info(f"Filtering complete: {len(results)} initial results -> {len(filtered_results)} filtered -> {len(final_results)} final results")
+                    return final_results
                 else:
                     log.error(f"Tavily API request failed with status {response.status}")
                     return []
