@@ -23,10 +23,6 @@ async def search_hackathons(lat: float, lng: float) -> List[dict]:
     if not tavily_api_key:
         log.error("TAVILY_API_KEY not found in environment variables")
         return []
-
-    # Calculate date range for last 4 weeks
-    end_date = datetime.now()
-    start_date = end_date - timedelta(weeks=4)
     
     # Get approximate location name using reverse geocoding
     async with aiohttp.ClientSession() as session:
@@ -41,14 +37,13 @@ async def search_hackathons(lat: float, lng: float) -> List[dict]:
                     city = address.get('city') or address.get('town') or address.get('village')
                     state = address.get('state')
                     country = address.get('country')
-                    county = address.get('county')
                     
-                    # Build location parts with all available granularity
-                    location_parts = [p for p in [city, county, state, country] if p]
+                    # Build location parts
+                    location_parts = [p for p in [city, state, country] if p]
                     location_string = ", ".join(location_parts)
                     search_locations = [
                         f'"{p}"' for p in location_parts if p
-                    ]  # Quote each location part for exact matching
+                    ]
                 else:
                     location_string = f"{lat:.2f}, {lng:.2f}"
                     search_locations = [location_string]
@@ -57,13 +52,11 @@ async def search_hackathons(lat: float, lng: float) -> List[dict]:
             location_string = f"{lat:.2f}, {lng:.2f}"
             search_locations = [location_string]
 
-    # Construct more specific search query with exact location matching
+    # Simpler search query focusing on event types and location
     search_query = (
-        f'("tech event" OR "hackathon" OR "coding competition" OR "developer conference") '
+        f'("hackathon" OR "tech event" OR "coding competition" OR "developer conference" OR "tech conference") '
         f'AND ({" OR ".join(search_locations)}) '
-        f'AND ("registration open" OR "tickets available") '
-        f'AND (venue OR location OR "taking place at") '
-        f'date:{start_date.strftime("%Y-%m-%d")} to {end_date.strftime("%Y-%m-%d")}'
+        f'AND (venue OR location OR event)'
     )
     
     async with aiohttp.ClientSession() as session:
@@ -74,9 +67,8 @@ async def search_hackathons(lat: float, lng: float) -> List[dict]:
                     "api_key": tavily_api_key,
                     "query": search_query,
                     "search_depth": "advanced",
-                    "max_results": 15,  # Increased to have more candidates for filtering
+                    "max_results": 20,  # Increased for more results
                     "sort_by": "relevance",
-                    "include_answer": True,
                     "include_raw_content": True
                 }
             ) as response:
@@ -84,7 +76,7 @@ async def search_hackathons(lat: float, lng: float) -> List[dict]:
                     data = await response.json()
                     results = data.get("results", [])
                     
-                    # More strict filtering of results
+                    # Basic filtering to ensure location relevance and individual events
                     filtered_results = []
                     location_terms = set(location_string.lower().split(", "))
                     
@@ -95,31 +87,25 @@ async def search_hackathons(lat: float, lng: float) -> List[dict]:
                             result.get("raw_content", "").lower()
                         )
                         
-                        # Stricter filtering criteria
-                        location_match_count = sum(1 for term in location_terms if term in content)
-                        has_specific_venue = any(phrase in content for phrase in [
-                            "venue:", "location:", "address:", "held at", "taking place at",
-                            "will be held", "hosted at", "convention center", "university"
-                        ])
+                        # Simpler filtering criteria
+                        location_match = any(term in content for term in location_terms)
                         is_specific_event = not any(generic in result.get("title", "").lower() for generic in [
-                            "upcoming hackathons", "hackathon list", "events near", "tech events",
-                            "upcoming events", "find hackathons", "hackathon calendar"
+                            "upcoming hackathons", "hackathon list", "events near",
+                            "find hackathons", "hackathon calendar"
                         ])
                         
-                        # Only include results that match all criteria
-                        if (location_match_count >= 2 and  # Must match at least 2 location terms
-                            has_specific_venue and 
-                            is_specific_event):
-                            
-                            # Clean up the title if needed
+                        if location_match and is_specific_event:
+                            # Clean up the title
                             title = result.get("title", "")
-                            if ":" in title:  # Often helps remove website names
+                            if ":" in title:
                                 title = title.split(":", 1)[1].strip()
+                            if "|" in title:
+                                title = title.split("|", 1)[0].strip()
                             
                             result["title"] = title
                             filtered_results.append(result)
                     
-                    return filtered_results[:5]  # Return top 5 most relevant results
+                    return filtered_results[:10]  # Return up to 10 results
                 else:
                     log.error(f"Tavily API request failed with status {response.status}")
                     return []
