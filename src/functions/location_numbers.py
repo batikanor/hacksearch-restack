@@ -44,4 +44,5 @@ async def get_location_numbers(params: LocationParams) -> LocationResponse:
         return LocationResponse(hackathons=sample_hackathons)
     except Exception as e:
         log.error("location_numbers function failed", error=e)
-        raise e
+        # Instead of raising, return empty hackathons list
+        return LocationResponse(hackathons=[])

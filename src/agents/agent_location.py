@@ -2,7 +2,7 @@ from datetime import timedelta
 from typing import List
 from pydantic import BaseModel
 from restack_ai.agent import agent, log
-from src.functions.location_numbers import LocationParams, get_location_numbers, HackathonInfo
+from src.functions.location_numbers import LocationParams, get_location_numbers, HackathonInfo, LocationResponse
 
 class LocationEvent(BaseModel):
     lat: float
@@ -22,11 +22,14 @@ class AgentLocation:
         try:
             log.info(f"Received location event: lat={params.lat}, lng={params.lng}")
             
-            response = await agent.step(
+            raw_response = await agent.step(
                 get_location_numbers,
                 LocationParams(lat=params.lat, lng=params.lng),
                 start_to_close_timeout=timedelta(seconds=30),
             )
+            
+            # Explicitly validate the response
+            response = LocationResponse(hackathons=raw_response.hackathons if hasattr(raw_response, 'hackathons') else [])
             
             self.locations.append({
                 'lat': params.lat,
@@ -39,7 +42,7 @@ class AgentLocation:
             
         except Exception as e:
             log.error(f"Error during location event: {e}")
-            raise e
+            return []
 
     @agent.event
     async def end(self, end: EndEvent) -> EndEvent:
