@@ -2,7 +2,7 @@ from datetime import timedelta
 from typing import List
 from pydantic import BaseModel
 from restack_ai.agent import agent, log
-from src.functions.location_numbers import LocationParams, get_location_numbers
+from src.functions.location_numbers import LocationParams, get_location_numbers, HackathonInfo
 
 class LocationEvent(BaseModel):
     lat: float
@@ -18,26 +18,24 @@ class AgentLocation:
         self.locations = []
 
     @agent.event
-    async def location(self, params: LocationEvent) -> List[int]:
+    async def location(self, params: LocationEvent) -> List[HackathonInfo]:
         try:
             log.info(f"Received location event: lat={params.lat}, lng={params.lng}")
             
-            # Generate 3 random numbers for this location using the location_numbers function
             response = await agent.step(
                 get_location_numbers,
                 LocationParams(lat=params.lat, lng=params.lng),
                 start_to_close_timeout=timedelta(seconds=30),
             )
             
-            # Store the location for future reference
             self.locations.append({
                 'lat': params.lat,
                 'lng': params.lng,
-                'numbers': response.numbers
+                'hackathons': response.hackathons
             })
             
-            log.info(f"Generated numbers for location: {response.numbers}")
-            return response.numbers
+            log.info(f"Found hackathons for location: {response.hackathons}")
+            return response.hackathons
             
         except Exception as e:
             log.error(f"Error during location event: {e}")
