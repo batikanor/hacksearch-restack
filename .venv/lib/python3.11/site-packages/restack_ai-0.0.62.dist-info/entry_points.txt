@@ -1,0 +1,2 @@
+[console_scripts]
+test = restack_ai.test_connection:run_test

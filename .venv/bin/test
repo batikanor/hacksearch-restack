@@ -1,0 +1,8 @@
+#!/home/batiwin/0_dev/2025/restack-yc-hackathon/restack-app/.venv/bin/python
+# -*- coding: utf-8 -*-
+import re
+import sys
+from restack_ai.test_connection import run_test
+if __name__ == '__main__':
+    sys.argv[0] = re.sub(r'(-script\.pyw|\.exe)?$', '', sys.argv[0])
+    sys.exit(run_test())
