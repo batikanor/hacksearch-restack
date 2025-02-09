@@ -38,12 +38,9 @@ async def search_hackathons(lat: float, lng: float) -> List[dict]:
                     state = address.get('state')
                     country = address.get('country')
                     
-                    # Build location parts
                     location_parts = [p for p in [city, state, country] if p]
                     location_string = ", ".join(location_parts)
-                    search_locations = [
-                        f'"{p}"' for p in location_parts if p
-                    ]
+                    search_locations = [f'"{p}"' for p in location_parts if p]
                     log.info(f"Location resolved to: {location_string}")
                 else:
                     location_string = f"{lat:.2f}, {lng:.2f}"
@@ -54,13 +51,16 @@ async def search_hackathons(lat: float, lng: float) -> List[dict]:
             location_string = f"{lat:.2f}, {lng:.2f}"
             search_locations = [location_string]
 
-    # Log the search query being used
+    # Improved search query with more specific terms and date context
+    current_year = datetime.now().year
     search_query = (
-        f'("hackathon" OR "tech event" OR "coding competition" OR "developer conference" OR "tech conference") '
+        f'("hackathon" OR "coding competition" OR "tech conference" OR "developer event") '
         f'AND ({" OR ".join(search_locations)}) '
-        f'AND (venue OR location OR event)'
+        f'AND (("{current_year}" OR "{current_year + 1}") OR "upcoming" OR "scheduled") '
+        f'AND ("registration open" OR "register now" OR "sign up") '
+        f'-"past" -"completed" -"ended" -"archive"'
     )
-    log.info(f"Using search query: {search_query}")
+    log.info(f"Using enhanced search query: {search_query}")
     
     async with aiohttp.ClientSession() as session:
         try:
@@ -80,50 +80,72 @@ async def search_hackathons(lat: float, lng: float) -> List[dict]:
                     results = data.get("results", [])
                     log.info(f"Initial search returned {len(results)} results")
                     
-                    # Basic filtering to ensure location relevance and individual events
                     filtered_results = []
                     location_terms = set(location_string.lower().split(", "))
                     
                     for result in results:
-                        content = (
-                            result.get("title", "").lower() + " " +
-                            result.get("snippet", "").lower() + " " +
-                            result.get("raw_content", "").lower()
-                        )
+                        # Safely get content fields with fallbacks
+                        title = result.get("title", "").lower() or ""
+                        snippet = result.get("snippet", "").lower() or ""
+                        raw_content = result.get("raw_content", "").lower() or ""
                         
-                        # Log individual result details before filtering
+                        # Combine all content for analysis
+                        content = f"{title} {snippet} {raw_content}"
+                        
                         log.info(f"Processing result: {result.get('title', '')}")
                         log.debug(f"Content length: {len(content)} chars")
                         
-                        # Simpler filtering criteria
-                        location_match = any(term in content for term in location_terms)
-                        is_specific_event = not any(generic in result.get("title", "").lower() for generic in [
+                        # Enhanced filtering criteria
+                        location_match = any(term.lower() in content for term in location_terms)
+                        
+                        # Check for date indicators
+                        has_date = any(str(year) in content for year in range(current_year, current_year + 2))
+                        is_upcoming = "upcoming" in content or "scheduled" in content
+                        
+                        # Check if it's a specific event
+                        is_specific_event = not any(generic in title for generic in [
                             "upcoming hackathons", "hackathon list", "events near",
-                            "find hackathons", "hackathon calendar"
+                            "find hackathons", "hackathon calendar", "all events"
                         ])
                         
-                        if location_match and is_specific_event:
+                        # Check for registration indicators
+                        has_registration = any(term in content for term in [
+                            "register now", "registration open", "sign up",
+                            "join now", "participate", "apply now"
+                        ])
+                        
+                        if location_match and is_specific_event and (has_date or is_upcoming) and has_registration:
                             # Clean up the title
-                            title = result.get("title", "")
-                            if ":" in title:
-                                title = title.split(":", 1)[1].strip()
-                            if "|" in title:
-                                title = title.split("|", 1)[0].strip()
+                            clean_title = result.get("title", "")
+                            for separator in [":", "|", "-", "–"]:
+                                if separator in clean_title:
+                                    clean_title = clean_title.split(separator)[0].strip()
                             
-                            result["title"] = title
+                            result["title"] = clean_title
                             filtered_results.append(result)
-                            log.info(f"Accepted result: {title}")
+                            log.info(f"Accepted result: {clean_title}")
+                            log.debug(f"Match criteria - Location: {location_match}, Date: {has_date}, "
+                                    f"Registration: {has_registration}")
                         else:
-                            log.debug(f"Filtered out: {result.get('title', '')} - Location match: {location_match}, Specific event: {is_specific_event}")
+                            log.debug(
+                                f"Filtered out: {result.get('title', '')} - "
+                                f"Location match: {location_match}, "
+                                f"Specific event: {is_specific_event}, "
+                                f"Has date: {has_date}, "
+                                f"Has registration: {has_registration}"
+                            )
                     
                     final_results = filtered_results[:10]
-                    log.info(f"Filtering complete: {len(results)} initial results -> {len(filtered_results)} filtered -> {len(final_results)} final results")
+                    log.info(
+                        f"Filtering complete: {len(results)} initial results -> "
+                        f"{len(filtered_results)} filtered -> {len(final_results)} final results"
+                    )
                     return final_results
                 else:
                     log.error(f"Tavily API request failed with status {response.status}")
                     return []
         except Exception as e:
-            log.error(f"Error calling Tavily API: {e}")
+            log.error(f"Error calling Tavily API: {str(e)}")
             return []
 
 @function.defn()
